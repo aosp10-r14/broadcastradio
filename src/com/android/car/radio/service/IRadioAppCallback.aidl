@@ -17,6 +17,7 @@
 package com.android.car.radio.service;
 
 import android.hardware.radio.RadioManager;
+import android.hardware.radio.Announcement;
 
 /**
  * Watches current program changes.
@@ -51,4 +52,6 @@ oneway interface IRadioAppCallback {
      * @param New program list
      */
     void onProgramListChanged(in List<RadioManager.ProgramInfo> plist);
+
+    void onAnnouncementListUpdated(in List<Announcement> list);
 }

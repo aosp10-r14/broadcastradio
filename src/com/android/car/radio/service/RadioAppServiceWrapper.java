@@ -20,11 +20,13 @@ import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
 import android.content.ServiceConnection;
+import android.hardware.radio.Announcement;
 import android.hardware.radio.ProgramSelector;
 import android.hardware.radio.RadioManager.ProgramInfo;
 import android.media.session.PlaybackState;
 import android.os.IBinder;
 import android.os.RemoteException;
+import android.os.SystemProperties;
 
 import androidx.annotation.IntDef;
 import androidx.annotation.NonNull;
@@ -41,6 +43,7 @@ import java.lang.annotation.Retention;
 import java.lang.annotation.RetentionPolicy;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -91,6 +94,7 @@ public class RadioAppServiceWrapper {
     private final MutableLiveData<Integer> mPlaybackState = new MutableLiveData<>();
     private final MutableLiveData<ProgramInfo> mCurrentProgram = new MutableLiveData<>();
     private final MutableLiveData<List<ProgramInfo>> mProgramList = new MutableLiveData<>();
+    private final MutableLiveData<List<Announcement>> mAnnouncementList = new MutableLiveData<>();
 
     {
         mConnectionState.postValue(STATE_CONNECTING);
@@ -176,8 +180,15 @@ public class RadioAppServiceWrapper {
 
         @Override
         public void onProgramListChanged(List<ProgramInfo> plist) {
+            //Log.e(TAG, "mProgramList filled ==========");
             mProgramList.postValue(plist);
         }
+
+	@Override
+	public void onAnnouncementListUpdated(List<Announcement> list) {
+            //Log.e(TAG, "Announcement updated ==========");
+	    mAnnouncementList.postValue(list);
+	}
     };
 
     /**
@@ -294,6 +305,11 @@ public class RadioAppServiceWrapper {
     @NonNull
     public LiveData<List<ProgramInfo>> getProgramList() {
         return mProgramList;
+    }
+
+    @NonNull
+    public LiveData<List<Announcement>> getAnnouncementList() {
+        return mAnnouncementList;
     }
 
     /**

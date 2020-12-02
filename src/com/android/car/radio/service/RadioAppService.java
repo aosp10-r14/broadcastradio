@@ -18,15 +18,20 @@ package com.android.car.radio.service;
 
 import static com.android.car.radio.util.Remote.tryExec;
 
+import android.app.AlertDialog;
+import android.content.DialogInterface;
 import android.content.Intent;
 import android.hardware.radio.ProgramList;
 import android.hardware.radio.ProgramSelector;
 import android.hardware.radio.RadioManager.ProgramInfo;
 import android.hardware.radio.RadioTuner;
+import android.hardware.radio.Announcement;
 import android.media.browse.MediaBrowser.MediaItem;
 import android.media.session.PlaybackState;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.IBinder;
+import android.os.Looper;
 import android.os.RemoteException;
 import android.os.SystemClock;
 import android.service.media.MediaBrowserService;
@@ -49,10 +54,15 @@ import com.android.car.radio.platform.RadioTunerExt.TuneCallback;
 import com.android.car.radio.storage.RadioStorage;
 import com.android.car.radio.util.Log;
 
+import java.lang.Runnable;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.Iterator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * A service handling hardware tuner session and audio streaming.
@@ -72,6 +82,9 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
     @Nullable private RadioTunerExt mRadioTuner;
     @Nullable private ProgramList mProgramList;
 
+    private Announcement announcement;
+    private Announcement.OnListUpdatedListener mAnnouncementListener;
+
     private RadioStorage mRadioStorage;
     private ImageMemoryCache mImageCache;
     @Nullable private AudioStreamController mAudioStreamController;
@@ -81,6 +94,7 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
 
     // current observables state for newly bound IRadioAppCallbacks
     private ProgramInfo mCurrentProgram = null;
+    private List<Announcement> mAnnouncementList = null;
     private int mCurrentPlaybackState = PlaybackState.STATE_NONE;
     private long mLastProgramListPush;
 
@@ -97,6 +111,14 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         mRadioStorage = RadioStorage.getInstance(this);
         mImageCache = new ImageMemoryCache(mRadioManager, 1000);
         mRadioTuner = mRadioManager.openSession(mHardwareCallback, null);
+	ArrayList<String> list = new ArrayList<>();
+	mAnnouncementListener = new Announcement.OnListUpdatedListener() {
+	    @Override
+	    public void onListUpdated(Collection<Announcement> activeAnnouncements) {
+		List<Announcement> lists = new ArrayList<>(activeAnnouncements);
+		onAnnouncementListUpdated(lists);
+	    }
+	};
         if (mRadioTuner == null) {
             Log.e(TAG, "Couldn't open tuner session");
             return;
@@ -127,6 +149,18 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         mAudioStreamController.requestMuted(false);
 
         mLifecycleRegistry.markState(Lifecycle.State.CREATED);
+    }
+
+    public void addAnnouncement() {
+	Set<Integer> announcementTypes = new HashSet<Integer>();
+	announcementTypes.add(Announcement.TYPE_TRAFFIC);
+	announcementTypes.add(Announcement.TYPE_WEATHER);
+	announcementTypes.add(Announcement.TYPE_EMERGENCY);
+	announcementTypes.add(Announcement.TYPE_NEWS);
+	announcementTypes.add(Announcement.TYPE_WARNING);
+	announcementTypes.add(Announcement.TYPE_SPORT);
+	announcementTypes.add(Announcement.TYPE_MISC);
+	mRadioManager.addAnnouncementListener(announcementTypes, mAnnouncementListener);
     }
 
     @Override
@@ -185,6 +219,17 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         }
     }
 
+    private void onAnnouncementListUpdated(List<Announcement> list) {
+        Log.e(TAG, "Received Announcement callback in application");
+	mAnnouncementList = list;
+        synchronized (mLock) {
+            for (IRadioAppCallback callback : mRadioAppCallbacks) {
+                Log.e(TAG, "sending callback from Service to Wrapper");
+                tryExec(() -> callback.onAnnouncementListUpdated(list));
+            }
+        }
+    }
+
     private void onProgramListChanged() {
         synchronized (mLock) {
             if (SystemClock.elapsedRealtime() - mLastProgramListPush > PROGRAM_LIST_RATE_LIMITING) {
@@ -214,6 +259,7 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
             ProgramSelector sel = mRadioStorage.getRecentlySelected(pt);
             if (sel != null) {
                 Log.i(TAG, "Restoring recently selected program: " + sel);
+		addAnnouncement();
                 mRadioTuner.tune(sel, tuneCb);
                 return;
             }
@@ -268,9 +314,17 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         @Override
         public void addCallback(IRadioAppCallback callback) throws RemoteException {
             synchronized (mLock) {
-                if (mCurrentProgram != null) callback.onCurrentProgramChanged(mCurrentProgram);
+                Log.e(TAG, "addCallback ========");
+                if (mCurrentProgram != null) {
+		     callback.onCurrentProgramChanged(mCurrentProgram);
+		}
                 callback.onPlaybackStateChanged(mCurrentPlaybackState);
-                if (mProgramList != null) callback.onProgramListChanged(mProgramList.toList());
+                if (mProgramList != null) {
+		     callback.onProgramListChanged(mProgramList.toList());
+		}
+		if (mAnnouncementList != null) {
+		     callback.onAnnouncementListUpdated(mAnnouncementList);
+		}
                 mRadioAppCallbacks.add(callback);
             }
         }
@@ -393,3 +447,4 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         }
     };
 }
+

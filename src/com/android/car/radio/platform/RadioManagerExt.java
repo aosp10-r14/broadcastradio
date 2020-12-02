@@ -21,6 +21,7 @@ import android.graphics.Bitmap;
 import android.hardware.radio.RadioManager;
 import android.hardware.radio.RadioManager.BandDescriptor;
 import android.hardware.radio.RadioTuner;
+import android.hardware.radio.Announcement;
 import android.os.Handler;
 import android.os.HandlerThread;
 
@@ -36,6 +37,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
@@ -96,6 +98,13 @@ public class RadioManagerExt {
             RadioManager.ModuleProperties module = mModules.get(HARDCODED_MODULE_INDEX);
             mAmFmRegionConfig = reduceAmFmBands(module.getBands());
         }
+    }
+
+
+    public void addAnnouncementListener(@NonNull Set<Integer> enabledAnnouncementTypes,
+            @NonNull Announcement.OnListUpdatedListener listener) {
+        Log.i(TAG, "Adding announcement Listener...");
+	mRadioManager.addAnnouncementListener(enabledAnnouncementTypes, listener);
     }
 
     /**
