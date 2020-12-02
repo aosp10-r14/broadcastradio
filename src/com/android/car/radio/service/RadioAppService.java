@@ -60,6 +60,8 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.HashSet;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -134,6 +136,19 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
                 favs -> mBrowseTree.setFavorites(new HashSet<>(favs)));
 
         mProgramList = mRadioTuner.getDynamicProgramList(null);
+	Map<String, String> parameters = new HashMap<String, String>();
+	parameters.put("com.announcement.start", "true");
+	parameters.put("com.announcement.stop", "false");
+	Map<String, String> returnParameters = mRadioTuner.setParameters(parameters);
+	Log.e(TAG, "return SetParameters1 = "+returnParameters.get("com.announcement.start"));
+	Log.e(TAG, "return SetParameters2 = "+returnParameters.get("com.announcement.stop"));
+
+	List<String> keys = new ArrayList<String> ();
+	keys.add("com.announcement.start");
+	keys.add("com.announcement.stop");
+	Map<String, String> returnGetParameters = mRadioTuner.getParameters(keys);
+	Log.e(TAG, "return GetParameters1 = "+returnGetParameters.get("com.announcement.start"));
+	Log.e(TAG, "return GetParameters2 = "+returnGetParameters.get("com.announcement.stop"));
         if (mProgramList != null) {
             mBrowseTree.setProgramList(mProgramList);
             mProgramList.registerListCallback(new ProgramList.ListCallback() {

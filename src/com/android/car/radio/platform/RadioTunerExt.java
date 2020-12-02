@@ -34,6 +34,8 @@ import com.android.car.radio.util.Log;
 
 import java.util.Objects;
 import java.util.stream.Stream;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Proposed extensions to android.hardware.radio.RadioTuner.
@@ -258,5 +260,15 @@ public class RadioTunerExt {
             mHwAudioSource = null;
         }
         mTuner.close();
+    }
+
+    public @NonNull Map<String, String>
+            setParameters(@NonNull Map<String, String> parameters) {
+	return mTuner.setParameters(parameters);
+    }
+
+    public @NonNull Map<String, String>
+            getParameters(@NonNull List<String> keys) {
+        return mTuner.getParameters(keys);
     }
 }
