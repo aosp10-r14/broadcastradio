@@ -1,0 +1,14 @@
+
+
+cc_prebuilt_library_static {
+    name: "libradioserviceprebuilt",
+    
+    vendor_available: true,
+
+    srcs: ["libRadioServiceIf.a"],
+    
+    export_include_dirs: [
+        "tunsdk/inc",
+         ],
+
+}

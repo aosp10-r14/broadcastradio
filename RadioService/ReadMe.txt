@@ -1,0 +1,1 @@
+copy the ReceiverService in /vendor/app/ folder
