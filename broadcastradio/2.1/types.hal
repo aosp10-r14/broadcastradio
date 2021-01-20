@@ -1,0 +1,21 @@
+package  android.hardware.broadcastradio@2.1;
+
+enum Result : int32_t {
+    OK,
+    UNKNOWN_ERROR,
+    INTERNAL_ERROR,
+    INVALID_ARGUMENTS,
+    INVALID_STATE,
+    NOT_SUPPORTED,
+    TIMEOUT,
+};
+
+struct BandConfig {
+    uint32_t region;
+    uint32_t type;
+    uint32_t lowerLimit;
+    uint32_t upperLimit;
+    uint32_t spacings;
+};
+
+

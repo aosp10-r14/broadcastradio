@@ -1,0 +1,7 @@
+package android.hardware.broadcastradio@2.1;
+
+import @2.0::IBroadcastRadio;
+
+interface IBroadcastRadio extends @2.0::IBroadcastRadio{
+    isAntennaConnected() generates (Result result, bool isConnected);
+};
