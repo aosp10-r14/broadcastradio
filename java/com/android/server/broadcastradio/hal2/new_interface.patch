@@ -1,0 +1,453 @@
+diff --git a/core/tests/BroadcastRadioTests/src/android/hardware/radio/tests/functional/RadioTunerTest.java b/core/tests/BroadcastRadioTests/src/android/hardware/radio/tests/functional/RadioTunerTest.java
+index 11eb158..cc2744a 100644
+--- a/core/tests/BroadcastRadioTests/src/android/hardware/radio/tests/functional/RadioTunerTest.java
++++ b/core/tests/BroadcastRadioTests/src/android/hardware/radio/tests/functional/RadioTunerTest.java
+@@ -22,6 +22,7 @@ import static org.mockito.Matchers.anyBoolean;
+ import static org.mockito.Matchers.anyInt;
+ import static org.mockito.Mockito.after;
+ import static org.mockito.Mockito.atMost;
++import static org.mockito.Mockito.atLeast;
+ import static org.mockito.Mockito.never;
+ import static org.mockito.Mockito.timeout;
+ import static org.mockito.Mockito.verify;
+@@ -30,9 +31,13 @@ import static org.testng.Assert.assertThrows;
+ import android.Manifest;
+ import android.content.Context;
+ import android.content.pm.PackageManager;
++import android.graphics.Bitmap;
++import android.hardware.radio.Announcement;
++import android.hardware.radio.ProgramList;
+ import android.hardware.radio.ProgramSelector;
+ import android.hardware.radio.RadioManager;
+ import android.hardware.radio.RadioTuner;
++import android.hardware.radio.RadioMetadata;
+ import android.test.suitebuilder.annotation.MediumTest;
+ import android.util.Log;
+ 
+@@ -49,9 +54,14 @@ import org.mockito.Mockito;
+ import org.mockito.MockitoAnnotations;
+ 
+ import java.util.ArrayList;
++import java.util.Arrays;
++import java.util.Collection;
+ import java.util.HashMap;
++import java.util.HashSet;
++import java.util.Iterator;
+ import java.util.List;
+ import java.util.Map;
++import java.util.Set;
+ 
+ /**
+  * A test for broadcast radio API.
+@@ -73,6 +83,7 @@ public class RadioTunerTest {
+     private RadioManager.ModuleProperties mModule;
+     private final List<RadioManager.ModuleProperties> mModules = new ArrayList<>();
+     @Mock private RadioTuner.Callback mCallback;
++    @Mock private Announcement.OnListUpdatedListener mAnnouncementListener;
+ 
+     RadioManager.AmBandDescriptor mAmBandDescriptor;
+     RadioManager.FmBandDescriptor mFmBandDescriptor;
+@@ -105,6 +116,10 @@ public class RadioTunerTest {
+ 
+     @After
+     public void tearDown() {
++	if (mAnnouncementListener != null) {
++	    mRadioManager.removeAnnouncementListener(mAnnouncementListener);
++	    mAnnouncementListener = null;
++	}
+         mRadioManager = null;
+         mModules.clear();
+         if (mRadioTuner != null) {
+@@ -256,13 +271,13 @@ public class RadioTunerTest {
+ 
+         int ret = mRadioTuner.step(RadioTuner.DIRECTION_DOWN, true);
+         assertEquals(RadioManager.STATUS_OK, ret);
+-        verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onProgramInfoChanged(any());
++        verify(mCallback, timeout(kTuneCallbackTimeoutMs).atLeast(1)).onProgramInfoChanged(any());
+ 
+         resetCallback();
+ 
+         ret = mRadioTuner.step(RadioTuner.DIRECTION_UP, false);
+         assertEquals(RadioManager.STATUS_OK, ret);
+-        verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onProgramInfoChanged(any());
++        verify(mCallback, timeout(kTuneCallbackTimeoutMs).atLeast(1)).onProgramInfoChanged(any());
+     }
+ 
+     @Test
+@@ -274,7 +289,7 @@ public class RadioTunerTest {
+ 
+             int ret = mRadioTuner.step(RadioTuner.DIRECTION_DOWN, true);
+             assertEquals(RadioManager.STATUS_OK, ret);
+-            verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onProgramInfoChanged(any());
++	    verify(mCallback, timeout(kTuneCallbackTimeoutMs).atLeast(1)).onProgramInfoChanged(any());
+ 
+             resetCallback();
+         }
+@@ -338,7 +353,7 @@ public class RadioTunerTest {
+         assertEquals(RadioManager.STATUS_OK, cancelRet);
+ 
+         verify(mCallback, after(kCancelTimeoutMs).atMost(1)).onError(RadioTuner.ERROR_CANCELLED);
+-        verify(mCallback, atMost(1)).onProgramInfoChanged(any());
++        verify(mCallback, atLeast(1)).onProgramInfoChanged(any());
+     }
+ 
+     @Test
+@@ -368,6 +383,10 @@ public class RadioTunerTest {
+     @Test
+     public void testTuneFromProgramList() {
+         openTuner();
++	int channel = mFmBandConfig.getLowerLimit() + mFmBandConfig.getSpacing();
++
++        // test tune
++        int ret = mRadioTuner.tune(channel, 0);
+ 
+         List<RadioManager.ProgramInfo> list;
+ 
+@@ -394,7 +413,8 @@ public class RadioTunerTest {
+         mRadioTuner.tune(sel);
+         ArgumentCaptor<RadioManager.ProgramInfo> infoc =
+                 ArgumentCaptor.forClass(RadioManager.ProgramInfo.class);
+-        verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onProgramInfoChanged(infoc.capture());
++        //verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onProgramInfoChanged(infoc.capture());
++	verify(mCallback, timeout(kTuneCallbackTimeoutMs).atLeast(1)).onProgramInfoChanged(infoc.capture());
+         assertEquals(sel, infoc.getValue().getSelector());
+     }
+ 
+@@ -424,4 +444,166 @@ public class RadioTunerTest {
+             assertThrows(IllegalStateException.class, () -> mRadioTuner.setAnalogForced(true));
+         }
+     }
++
++    @Test
++    public void testCancelAnnouncement() {
++	openTuner();
++	mRadioTuner.cancelAnnouncement();
++	verify(mCallback, timeout(kCancelTimeoutMs)).onEmergencyAnnouncement(anyBoolean());
++    }
++
++    @Test
++    public void testGetMetadataImage() {
++	openTuner();
++
++	RadioManager.ProgramInfo[] info = new RadioManager.ProgramInfo[1];
++        int ret = mRadioTuner.getProgramInformation(info);
++        assertEquals(RadioManager.STATUS_OK, ret);
++        assertNotNull(info[0]);
++
++	RadioMetadata metadata = info[0].getMetadata();
++	int id = metadata.getBitmapId(RadioMetadata.METADATA_KEY_ART);
++	Bitmap bitmap = mRadioTuner.getMetadataImage(id);
++	assertNotNull(bitmap);
++    }
++
++    @Test
++    public void testGetDynamicProgramList() {
++	openTuner();
++
++        try {
++//            Map<String, String> filter = new HashMap<>();
++//            filter.put("com.google.dummy", "dummy");
++            ProgramList list = mRadioTuner.getDynamicProgramList(null);
++            assertNotNull(list);
++        } catch (IllegalStateException e) {
++            // the list may or may not be ready at this point
++            Log.e(TAG, "Background list is not ready");
++        }
++    }
++
++
++    @Test
++    public void testIsConfigFlagSupported() {
++	openTuner();
++
++	List<Integer> flags = new ArrayList<>();
++	flags.add(RadioManager.CONFIG_FORCE_ANALOG);
++	flags.add(RadioManager.CONFIG_FORCE_DIGITAL);
++	flags.add(RadioManager.CONFIG_RDS_AF);
++	flags.add(RadioManager.CONFIG_RDS_REG);
++	flags.add(RadioManager.CONFIG_DAB_DAB_LINKING);
++	flags.add(RadioManager.CONFIG_DAB_FM_LINKING);
++	flags.add(RadioManager.CONFIG_DAB_DAB_SOFT_LINKING);
++	flags.add(RadioManager.CONFIG_DAB_FM_SOFT_LINKING);
++	flags.add(RadioManager.CONFIG_FORCE_MONO);
++	for (int flag : flags) {
++	    boolean isSupported = mRadioTuner.isConfigFlagSupported(flag);
++            Log.e(TAG, flag +" isSupported?? "+isSupported);
++	    assertTrue(isSupported);
++	}
++    }
++
++    @Test
++    public void testIsConfigFlagSet() {
++	openTuner();
++
++        List<Integer> flags = new ArrayList<>();
++        flags.add(RadioManager.CONFIG_FORCE_ANALOG);
++        flags.add(RadioManager.CONFIG_FORCE_DIGITAL);
++        flags.add(RadioManager.CONFIG_RDS_AF);
++        flags.add(RadioManager.CONFIG_RDS_REG);
++        flags.add(RadioManager.CONFIG_DAB_DAB_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_FM_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_DAB_SOFT_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_FM_SOFT_LINKING);
++        flags.add(RadioManager.CONFIG_FORCE_MONO);
++        for (int flag : flags) {
++            boolean isSet = mRadioTuner.isConfigFlagSet(flag);
++            Log.e(TAG, flag +" isSet?? "+isSet);
++            assertTrue(isSet);
++        }
++    }
++
++    @Test
++    public void testSetConfigFlag() {
++	openTuner();
++
++        List<Integer> flags = new ArrayList<>();
++        flags.add(RadioManager.CONFIG_FORCE_ANALOG);
++        flags.add(RadioManager.CONFIG_FORCE_DIGITAL);
++        flags.add(RadioManager.CONFIG_RDS_AF);
++        flags.add(RadioManager.CONFIG_RDS_REG);
++        flags.add(RadioManager.CONFIG_DAB_DAB_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_FM_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_DAB_SOFT_LINKING);
++        flags.add(RadioManager.CONFIG_DAB_FM_SOFT_LINKING);
++        flags.add(RadioManager.CONFIG_FORCE_MONO);
++        for (int flag : flags) {
++            mRadioTuner.setConfigFlag(flag, true);
++	    boolean isSet = mRadioTuner.isConfigFlagSet(flag);
++            Log.e(TAG, flag +" isSet?? "+isSet);
++            assertTrue(isSet);
++        }
++    }
++
++    @Test
++    public void testSetParameters() {
++	openTuner();
++
++	Map<String, String> parameters = new HashMap<String, String>();
++	parameters.put("com.google.unknown", "dummy");
++	Map<String, String> result = mRadioTuner.setParameters(parameters);
++	for ( Map.Entry<String, String> entry : result.entrySet()) {
++    	    String value = entry.getValue();
++	    assertEquals(value, "OK");
++	}
++        //verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onParametersUpdated(any());
++    }
++
++    @Test
++    public void testGetParameters() {
++	openTuner();
++
++	Map<String, String> parameters = new HashMap<String, String>();
++	parameters.put("com.google.unknown1", "dummy1");
++	parameters.put("com.google.unknown2", "dummy2");
++	parameters.put("com.google.unknown3", "dummy3");
++	mRadioTuner.setParameters(parameters);
++
++	List<String> keys = new ArrayList<>(Arrays.asList("com.google.unknown1", "com.google.unknown2", "com.google.unknown3"));
++	Map<String, String> resultParameters = mRadioTuner.getParameters(keys);
++
++	Set st = (Set) resultParameters.entrySet();
++	Iterator it = st.iterator();
++	Map.Entry map = (Map.Entry)it.next();
++	assertEquals(map.getValue(), "dummy1");
++	map = (Map.Entry)it.next();
++	assertEquals(map.getValue(), "dummy2");
++	map = (Map.Entry)it.next();
++	assertEquals(map.getValue(), "dummy3");
++    }
++
++    @Test
++    public void testConfigurationChange() {
++        openTuner();
++
++        int ret = mRadioTuner.step(RadioTuner.DIRECTION_DOWN, false);
++        assertEquals(RadioManager.STATUS_OK, ret);
++        verify(mCallback, timeout(kTuneCallbackTimeoutMs)).onMetadataChanged(any());
++    }
++
++    @Test
++    public void testHasControl() {
++	openTuner();
++
++	boolean controlRet = mRadioTuner.hasControl();
++	assertTrue(controlRet);
++
++	int cancelRet = mRadioTuner.cancel();
++	assertEquals(RadioManager.STATUS_OK, cancelRet);
++
++	controlRet = mRadioTuner.hasControl();
++        assertTrue(controlRet);
++    }
+ }
+diff --git a/services/core/java/com/android/server/broadcastradio/BroadcastRadioService.java b/services/core/java/com/android/server/broadcastradio/BroadcastRadioService.java
+index 54a4ad4..a7b6a83 100644
+--- a/services/core/java/com/android/server/broadcastradio/BroadcastRadioService.java
++++ b/services/core/java/com/android/server/broadcastradio/BroadcastRadioService.java
+@@ -55,8 +55,9 @@ public class BroadcastRadioService extends SystemService {
+         mHal1 = new com.android.server.broadcastradio.hal1.BroadcastRadioService();
+         mV1Modules = mHal1.loadModules();
+         OptionalInt max = mV1Modules.stream().mapToInt(RadioManager.ModuleProperties::getId).max();
+-        mHal2 = new com.android.server.broadcastradio.hal2.BroadcastRadioService(
+-                max.isPresent() ? max.getAsInt() + 1 : 0);
++        Slog.e(TAG, "max is Present " + max.isPresent());
++        mHal2 = new com.android.server.broadcastradio.hal2.BroadcastRadioService(0);
++//                max.isPresent() ? max.getAsInt() + 1 : 0);
+     }
+ 
+     @Override
+diff --git a/services/core/java/com/android/server/broadcastradio/hal2/BroadcastRadioService.java b/services/core/java/com/android/server/broadcastradio/hal2/BroadcastRadioService.java
+index 5e79c59..5727c76 100644
+--- a/services/core/java/com/android/server/broadcastradio/hal2/BroadcastRadioService.java
++++ b/services/core/java/com/android/server/broadcastradio/hal2/BroadcastRadioService.java
+@@ -117,6 +117,7 @@ public class BroadcastRadioService {
+     };
+ 
+     public BroadcastRadioService(int nextModuleId) {
++        Slog.e(TAG, "HAL2 BroadcastRadioService = "+nextModuleId+" and interfaceName = "+IBroadcastRadio.kInterfaceName);
+         mNextModuleId = nextModuleId;
+         try {
+             IServiceManager manager = IServiceManager.getService();
+diff --git a/services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java b/services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java
+index acb0207..17f4571 100644
+--- a/services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java
++++ b/services/core/java/com/android/server/broadcastradio/hal2/RadioModule.java
+@@ -23,6 +23,7 @@ import android.graphics.BitmapFactory;
+ import android.hardware.broadcastradio.V2_0.AmFmRegionConfig;
+ import android.hardware.broadcastradio.V2_0.Announcement;
+ import android.hardware.broadcastradio.V2_0.DabTableEntry;
++import android.hardware.broadcastradio.V2_0.IAnnouncement;
+ import android.hardware.broadcastradio.V2_0.IAnnouncementListener;
+ import android.hardware.broadcastradio.V2_0.IBroadcastRadio;
+ import android.hardware.broadcastradio.V2_0.ICloseHandle;
+@@ -52,6 +53,7 @@ class RadioModule {
+     private static final String TAG = "BcRadio2Srv.module";
+ 
+     @NonNull private final IBroadcastRadio mService;
++    @NonNull private final IAnnouncement mAnn;
+     @NonNull public final RadioManager.ModuleProperties mProperties;
+ 
+     private final Object mLock = new Object();
+@@ -109,16 +111,24 @@ class RadioModule {
+     @GuardedBy("mLock")
+     private final Set<TunerSession> mAidlTunerSessions = new HashSet<>();
+ 
+-    private RadioModule(@NonNull IBroadcastRadio service,
++    private RadioModule(@NonNull IBroadcastRadio service, IAnnouncement ann,
+             @NonNull RadioManager.ModuleProperties properties) throws RemoteException {
+         mProperties = Objects.requireNonNull(properties);
+         mService = Objects.requireNonNull(service);
++	mAnn = Objects.requireNonNull(ann);
+     }
+ 
+     public static @Nullable RadioModule tryLoadingModule(int idx, @NonNull String fqName) {
+         try {
+             IBroadcastRadio service = IBroadcastRadio.getService(fqName);
++	    IAnnouncement annService = IAnnouncement.getService(true);
+             if (service == null) return null;
++            if (annService == null) {
++                Slog.e(TAG, "&&&&&&&&&& annService null");
++	    } else {
++                Slog.e(TAG, "&&&&&&&&&& annService not null");
++		annService.cancelAnnouncement();
++	    }
+ 
+             Mutable<AmFmRegionConfig> amfmConfig = new Mutable<>();
+             service.getAmFmRegionConfig(false, (result, config) -> {
+@@ -133,7 +143,7 @@ class RadioModule {
+             RadioManager.ModuleProperties prop = Convert.propertiesFromHal(idx, fqName,
+                     service.getProperties(), amfmConfig.value, dabConfig.value);
+ 
+-            return new RadioModule(service, prop);
++            return new RadioModule(service, annService, prop);
+         } catch (RemoteException ex) {
+             Slog.e(TAG, "failed to load module " + fqName, ex);
+             return null;
+@@ -155,7 +165,7 @@ class RadioModule {
+                 });
+                 mHalTunerSession = Objects.requireNonNull(hwSession.value);
+             }
+-            TunerSession tunerSession = new TunerSession(this, mHalTunerSession, userCb);
++            TunerSession tunerSession = new TunerSession(this, mHalTunerSession, userCb, mAnn);
+             mAidlTunerSessions.add(tunerSession);
+ 
+             // Propagate state to new client. Note: These callbacks are invoked while holding mLock
+diff --git a/services/core/java/com/android/server/broadcastradio/hal2/TunerSession.java b/services/core/java/com/android/server/broadcastradio/hal2/TunerSession.java
+index 008fea5..83bced7 100644
+--- a/services/core/java/com/android/server/broadcastradio/hal2/TunerSession.java
++++ b/services/core/java/com/android/server/broadcastradio/hal2/TunerSession.java
+@@ -21,6 +21,7 @@ import android.annotation.Nullable;
+ import android.graphics.Bitmap;
+ import android.hardware.broadcastradio.V2_0.ConfigFlag;
+ import android.hardware.broadcastradio.V2_0.ITunerSession;
++import android.hardware.broadcastradio.V2_0.IAnnouncement;
+ import android.hardware.broadcastradio.V2_0.Result;
+ import android.hardware.radio.ITuner;
+ import android.hardware.radio.ProgramList;
+@@ -43,6 +44,7 @@ class TunerSession extends ITuner.Stub {
+ 
+     private final RadioModule mModule;
+     private final ITunerSession mHwSession;
++    private final IAnnouncement mAnn;
+     final android.hardware.radio.ITunerCallback mCallback;
+     private boolean mIsClosed = false;
+     private boolean mIsMuted = false;
+@@ -51,10 +53,11 @@ class TunerSession extends ITuner.Stub {
+     private RadioManager.BandConfig mDummyConfig = null;
+ 
+     TunerSession(@NonNull RadioModule module, @NonNull ITunerSession hwSession,
+-            @NonNull android.hardware.radio.ITunerCallback callback) {
++            @NonNull android.hardware.radio.ITunerCallback callback, IAnnouncement ann) {
+         mModule = Objects.requireNonNull(module);
+         mHwSession = Objects.requireNonNull(hwSession);
+         mCallback = Objects.requireNonNull(callback);
++	mAnn = Objects.requireNonNull(ann);
+     }
+ 
+     @Override
+@@ -169,6 +172,13 @@ class TunerSession extends ITuner.Stub {
+     @Override
+     public void cancelAnnouncement() {
+         Slog.i(TAG, "Announcements control doesn't involve cancelling at the HAL level in 2.x");
++	if (mAnn != null) {
++            Slog.i(TAG, "Announcements control called");
++	    try {
++	    mAnn.cancelAnnouncement();
++	    } catch (Exception e) {
++	    }
++	}
+     }
+ 
+     @Override
+diff --git a/services/core/java/com/android/server/wm/DisplayContent.java b/services/core/java/com/android/server/wm/DisplayContent.java
+index e099a4f..2392da4 100644
+--- a/services/core/java/com/android/server/wm/DisplayContent.java
++++ b/services/core/java/com/android/server/wm/DisplayContent.java
+@@ -939,8 +939,8 @@ class DisplayContent extends WindowContainer<DisplayContent.DisplayChildWindowCo
+ 
+         mDisplayPolicy = new DisplayPolicy(service, this);
+         mDisplayRotation = new DisplayRotation(service, this);
+-        mCloseToSquareMaxAspectRatio = service.mContext.getResources().getFloat(
+-                com.android.internal.R.dimen.config_closeToSquareDisplayMaxAspectRatio);
++        mCloseToSquareMaxAspectRatio = 1.333f; //service.mContext.getResources().getFloat(
++                //com.android.internal.R.dimen.config_closeToSquareDisplayMaxAspectRatio);
+         if (isDefaultDisplay) {
+             // The policy may be invoked right after here, so it requires the necessary default
+             // fields of this display content.
+diff --git a/services/core/java/com/android/server/wm/WindowManagerService.java b/services/core/java/com/android/server/wm/WindowManagerService.java
+index c108752..cda4d32 100644
+--- a/services/core/java/com/android/server/wm/WindowManagerService.java
++++ b/services/core/java/com/android/server/wm/WindowManagerService.java
+@@ -1120,9 +1120,9 @@ public class WindowManagerService extends IWindowManager.Stub
+         mWindowAnimationScaleSetting = Settings.Global.getFloat(resolver,
+                 Settings.Global.WINDOW_ANIMATION_SCALE, mWindowAnimationScaleSetting);
+         mTransitionAnimationScaleSetting = Settings.Global.getFloat(resolver,
+-                Settings.Global.TRANSITION_ANIMATION_SCALE,
+-                context.getResources().getFloat(
+-                        R.dimen.config_appTransitionAnimationDurationScaleDefault));
++                Settings.Global.TRANSITION_ANIMATION_SCALE, mTransitionAnimationScaleSetting);
++                //context.getResources().getFloat(
++                  //      R.dimen.config_appTransitionAnimationDurationScaleDefault));
+ 
+         setAnimatorDurationScale(Settings.Global.getFloat(resolver,
+                 Settings.Global.ANIMATOR_DURATION_SCALE, mAnimatorDurationScaleSetting));
