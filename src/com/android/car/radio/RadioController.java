@@ -22,6 +22,9 @@ import android.content.DialogInterface;
 import android.hardware.radio.Announcement;
 import android.hardware.radio.ProgramSelector;
 import android.hardware.radio.RadioManager.ProgramInfo;
+import android.hardware.radio.RadioManager;
+import android.hardware.radio.RadioTuner;
+import android.hardware.radio.RadioTuner.Callback;
 import android.hardware.radio.RadioMetadata;
 import android.media.session.PlaybackState;
 import android.os.Handler;
@@ -29,6 +32,7 @@ import android.os.Looper;
 import android.os.SystemProperties;
 import android.view.View;
 import android.widget.ListView;
+import android.widget.RadioButton;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -69,9 +73,10 @@ public class RadioController {
 
     private List<Announcement> mAnnouncementList;
     private ProgramSelector mCurrentSelector;
-    private ProgramSelector mPreviousSelector;
-    private boolean mIsAnnouncementActive = false;
+    private boolean mIsAnnouncementInProgress = false;
     private AlertDialog dialog;
+    private long annStartTime = 0;
+    private long annStopTime = 0;
 
     @Nullable private ProgramInfo mCurrentProgram;
 
@@ -185,8 +190,7 @@ public class RadioController {
         synchronized (mLock) {
             mCurrentProgram = Objects.requireNonNull(info);
             ProgramSelector sel = info.getSelector();
-	    if (!mIsAnnouncementActive) {
-		mPreviousSelector = mCurrentSelector;
+	    if (!mIsAnnouncementInProgress) {
 		mCurrentSelector = sel;
 	    }
             Log.e(TAG, "onCurrentProgramChanged in Controller - Selector stored");
@@ -248,59 +252,78 @@ public class RadioController {
 
     private void onAnnouncementListUpdated(List<Announcement> list) {
         Log.e(TAG, "onAnnouncementListUpdated in Controller");
+
 	ArrayList<String> annList = new ArrayList<>();
-	mAnnouncementList = list;
-	for (int i = 0; i<list.size(); i++) {	
+	for (int i = 0; i<list.size(); i++) {
+
+	    AnnouncementListUI annListUI = new AnnouncementListUI();
 	    Map<String, String> vendorInfo = list.get(i).getVendorInfo();
+	    if (vendorInfo == null) return;
+
 	    boolean isStop =  vendorInfo.get("com.announcement.stop") != null && vendorInfo.get("com.announcement.stop").equals("true");
 	    boolean isStart =  vendorInfo.get("com.announcement.start") != null && vendorInfo.get("com.announcement.start").equals("true");
             Log.e(TAG, "Announcement vendor values isStop = "+isStop +" and isStart = "+isStart);
+
+	    // Below is the testcode for skipping frequent callbacks
+	    if (isStart) annStartTime = java.lang.System.currentTimeMillis();
+	    if (isStop) annStopTime = java.lang.System.currentTimeMillis();
+	    if ((annStopTime > annStartTime) && (annStopTime - annStartTime < 5000)) return;
+
 	    if (isStop || SystemProperties.get("sys.ann.value").equals("stop")) {
 		stopAnnouncement();
 		return;
 	    }
-	if (SystemProperties.get("sys.ann.value", "false").equals("start"))  return;
+	    annListUI.setStationName(vendorInfo.get("com.announcement.station"));
+
+
+	    ProgramSelector sel = list.get(i).getSelector();
+	    if (sel == null) return;
+	    annListUI.setFreq(list.get(i).getSelector().getPrimaryId().getValue());
+	    
+
+	    switch(list.get(i).getType()) {
+		case Announcement.TYPE_TRAFFIC:
+		    annListUI.setAnnouncement("Traffic Announcement");
+		    break;
+		case Announcement.TYPE_EMERGENCY:
+		    annListUI.setAnnouncement("Emergency Announcement");
+		    break;
+		case Announcement.TYPE_NEWS:
+		    annListUI.setAnnouncement("News Announcement");
+		    break;
+		case Announcement.TYPE_SPORT:
+		    annListUI.setAnnouncement("Sport Announcement");
+		    break;
+		case Announcement.TYPE_WARNING:
+		    annListUI.setAnnouncement("Warning Announcement");
+		    break;
+		case Announcement.TYPE_WEATHER:
+		    annListUI.setAnnouncement("Weather Announcement");
+		    break;
+		case Announcement.TYPE_EVENT:
+		    annListUI.setAnnouncement("Event Announcement");
+		    break;
+		default:
+		    annListUI.setAnnouncement("Miscellaneous Announcement");
+		    break;
+	    }
+	    annList.add(annListUI.getAnnouncement()+ " - "+annListUI.getStationName()+ " "+String.valueOf((float)((float)annListUI.getFreq()/1000)));
+
+	    if (SystemProperties.get("sys.ann.value", "false").equals("start"))  return; //TestCode - Needs to be removed
+
 	    if (isStart) {
-		    SystemProperties.set("sys.ann.value", "start");
-		    switch(list.get(i).getType()) {
-			case Announcement.TYPE_TRAFFIC:
-			    annList.add("Traffic Announcement");
-			    break;
-			case Announcement.TYPE_EMERGENCY:
-			    annList.add("Emergency Announcement");
-			    break;
-			case Announcement.TYPE_NEWS:
-			    annList.add("News Announcement");
-			    break;
-			case Announcement.TYPE_SPORT:
-			    annList.add("Sport Announcement");
-			    break;
-			case Announcement.TYPE_WARNING:
-			    annList.add("Warning Announcement");
-			    break;
-			case Announcement.TYPE_WEATHER:
-			    annList.add("Weather Announcement");
-			    break;
-			case Announcement.TYPE_MISC:
-			    annList.add("Miscellaneous Announcement");
-			    break;
-			case Announcement.TYPE_EVENT:
-			    annList.add("Event Announcement");
-			    break;
-			default:
-			    break;
-		     }
+		SystemProperties.set("sys.ann.value", "start");
 	    }
 	}
-	showAnnouncement(annList);
+	showAnnouncement(annList, list);
     }
 
     private void stopAnnouncement() {
         Log.e(TAG, "stopAnnouncement in Controller");
-	if (mIsAnnouncementActive) {
+	if (mIsAnnouncementInProgress) {
             Log.e(TAG, "stopAnnouncement - Fallback to previous tune channel");
 	    tune(mCurrentSelector);
-	    mIsAnnouncementActive = false;
+	    mIsAnnouncementInProgress = false;
 	} else {
 	    if (dialog != null && dialog.isShowing()) {
                 Log.e(TAG, "stopAnnouncement - Dismissing dialog");
@@ -312,57 +335,91 @@ public class RadioController {
     }
 
 
-    private void showAnnouncement(final ArrayList<String> list) {
+    private void showAnnouncement(final ArrayList<String> list, final List<Announcement> annList) {
         Log.e(TAG, "showAnnouncement in Controller");
         new Handler(Looper.getMainLooper()).post(new Runnable() {
             @Override
             public void run() {
                 Log.e(TAG, "showAnnouncement Dialog");
-                openDialog(list);
+                openDialog(list, annList);
             }
         });
     }
 
-    public void openDialog(ArrayList<String> list) {
+    public void openDialog(ArrayList<String> list, final List<Announcement> annList) {
         Log.e(TAG, "openDialog in Controller");
-        // setup the alert builder
         AlertDialog.Builder builder = new AlertDialog.Builder(mActivity);
-        builder.setTitle("Choose an Announcement");
+//        builder.setTitle("Choose an Announcement");
 
-        // add a radio button list
-        int checkedItem = 1;
-        builder.setSingleChoiceItems(list.toArray
-        (new String[list.size()]), checkedItem, new DialogInterface.OnClickListener() {
+        builder.setItems(list.toArray
+        (new String[list.size()]), new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
         	Log.e(TAG, "onClick - "+which);
             }
         });
 
-        // add OK and Cancel buttons
-        builder.setPositiveButton("Play", new DialogInterface.OnClickListener() {
+        builder.setPositiveButton("PLAY", new DialogInterface.OnClickListener() {
             @Override
             public void onClick(DialogInterface dialog, int which) {
 		ListView lw = ((AlertDialog)dialog).getListView();
-        	Log.e(TAG, "Play button clicked - "+lw.getCheckedItemPosition());
+        	Log.e(TAG, "Play button clicked "+lw.getCheckedItemPosition());
 		//Object checkedItem = lw.getAdapter().getItem(lw.getCheckedItemPosition());
-		selectAnnouncement(lw.getCheckedItemPosition());	
+		int position = lw.getCheckedItemPosition();
+		if (position == -1) position = 0;
+		selectAnnouncement(position, annList);
             }
         });
-        builder.setNegativeButton("Cancel", null);
+        builder.setNegativeButton("CANCEL", new DialogInterface.OnClickListener() {
+	    @Override
+	    public void onClick(DialogInterface dialog, int which) {
+        	Log.e(TAG, "Cancel button clicked  ");
+		SystemProperties.set("sys.ann.value", "false");
+		cancelAnnouncement();
+	    }
+	});
 
         // create and show the alert dialog
         dialog = builder.create();
         dialog.show();
     }
 
-    private void selectAnnouncement(int position) {
-	Announcement selectedAnnouncement = mAnnouncementList.get(position);
+    private void cancelAnnouncement() {
+        Log.e(TAG, "cancelAnnouncement call in RadioController");
+	mAppService.cancelAnnouncement();
+    }
+
+    private void selectAnnouncement(int position, List<Announcement> list) {
+	Announcement selectedAnnouncement = list.get(position);
 	ProgramSelector sel = selectedAnnouncement.getSelector();
         Log.e(TAG, "Announcement Selected "+sel);
 	tune(sel);
-	mIsAnnouncementActive = true;
-	SystemProperties.set("sys.ann.value", "false");
+	mIsAnnouncementInProgress = true;
+    }
+
+    private class AnnouncementListUI {
+	private String mStationName;
+	private long mFreq;
+	private String mAnnouncementName;
+
+	public void setStationName(String name) {
+	    mStationName = name;
+	}
+	public String getStationName() {
+	    return mStationName;
+	}
+	public void setFreq(long freq) {
+	    mFreq = freq;
+	}
+	public long getFreq() {
+	    return mFreq;
+	}
+	public void setAnnouncement(String name) {
+	    mAnnouncementName = name;
+	}
+	public String getAnnouncement() {
+	    return mAnnouncementName;
+	}
     }
 
 }

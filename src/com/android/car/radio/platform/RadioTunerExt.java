@@ -271,4 +271,24 @@ public class RadioTunerExt {
             getParameters(@NonNull List<String> keys) {
         return mTuner.getParameters(keys);
     }
+
+    public void cancelAnnouncement() {
+	mTuner.cancelAnnouncement();
+    }
+
+    public void setConfiguration(RadioManager.BandConfig config) {
+        mTuner.setConfiguration(config);
+    }
+
+    public void getConfiguration(RadioManager.BandConfig[] config) {
+        mTuner.getConfiguration(config);
+    }
+
+    public void startBackgroundScan() {
+        mTuner.startBackgroundScan();
+    }
+
+    public void isAntennaConnected() {
+        mTuner.isAntennaConnected();
+    }
 }

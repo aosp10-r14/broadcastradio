@@ -84,4 +84,6 @@ interface IRadioAppService {
      * Returns current region config (like frequency ranges for AM/FM).
      */
     RegionConfig getRegionConfig();
+
+    void cancelAnnouncement();
 }

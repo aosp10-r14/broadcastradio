@@ -319,6 +319,10 @@ public class RadioAppServiceWrapper {
         tune(sel, null);
     }
 
+    public void cancelAnnouncement() {
+	callService(service -> service.cancelAnnouncement());
+    }
+
     /**
      * Tunes to a given program with a callback.
      */

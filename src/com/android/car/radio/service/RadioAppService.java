@@ -24,6 +24,7 @@ import android.content.Intent;
 import android.hardware.radio.ProgramList;
 import android.hardware.radio.ProgramSelector;
 import android.hardware.radio.RadioManager.ProgramInfo;
+import android.hardware.radio.RadioManager;
 import android.hardware.radio.RadioTuner;
 import android.hardware.radio.Announcement;
 import android.media.browse.MediaBrowser.MediaItem;
@@ -164,6 +165,38 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         mAudioStreamController.requestMuted(false);
 
         mLifecycleRegistry.markState(Lifecycle.State.CREATED);
+	addAnnouncement();
+	setConfiguration(buildConfiguration());
+        getConfiguration();
+        startBackgroundScan();
+        isAntennaConnected();
+    }
+
+    private RadioManager.BandConfig buildConfiguration() {
+        RadioManager.FmBandDescriptor desc = new RadioManager.FmBandDescriptor(RadioManager.REGION_JAPAN, 0, 0, 0, 0, false, false, false, false, false);
+        RadioManager.BandConfig bandConfig = new RadioManager.FmBandConfig.Builder(desc).build();
+        return bandConfig;
+    }
+
+    public void setConfiguration(RadioManager.BandConfig config) {
+        Log.e(TAG, "setConfiguration call in RadioAppService");
+	mRadioTuner.setConfiguration(config);
+    }
+
+    public void getConfiguration() {
+        Log.e(TAG, "getConfiguration call in RadioAppService");
+	RadioManager.BandConfig[] config = new RadioManager.BandConfig[1];
+	mRadioTuner.getConfiguration(config);
+    }
+
+    public void startBackgroundScan() {
+        Log.e(TAG, "startBackgroundScan call in RadioAppService");
+	mRadioTuner.startBackgroundScan();
+    }
+
+    public void isAntennaConnected() {
+        Log.e(TAG, "isAntennaConnected call in RadioAppService");
+	mRadioTuner.isAntennaConnected();
     }
 
     public void addAnnouncement() {
@@ -177,6 +210,7 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
 	announcementTypes.add(Announcement.TYPE_MISC);
 	mRadioManager.addAnnouncementListener(announcementTypes, mAnnouncementListener);
     }
+
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
@@ -274,7 +308,6 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
             ProgramSelector sel = mRadioStorage.getRecentlySelected(pt);
             if (sel != null) {
                 Log.i(TAG, "Restoring recently selected program: " + sel);
-		addAnnouncement();
                 mRadioTuner.tune(sel, tuneCb);
                 return;
             }
@@ -332,6 +365,8 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
                 Log.e(TAG, "addCallback ========");
                 if (mCurrentProgram != null) {
 		     callback.onCurrentProgramChanged(mCurrentProgram);
+                     //Log.e(TAG, "addCallback cancelAnnouncement ========");
+		     //cancelAnnouncement();
 		}
                 callback.onPlaybackStateChanged(mCurrentPlaybackState);
                 if (mProgramList != null) {
@@ -418,6 +453,12 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
                 return mRegionConfigCache;
             }
         }
+    
+	@Override
+	public void cancelAnnouncement() {
+	    Log.e(TAG, "cancel Announcement in RadioAppService ");
+	    mRadioTuner.cancelAnnouncement();
+    	}
     };
 
     private RadioTuner.Callback mHardwareCallback = new RadioTuner.Callback() {
