@@ -66,6 +66,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Arrays;
 
 /**
  * A service handling hardware tuner session and audio streaming.
@@ -136,7 +137,17 @@ public class RadioAppService extends MediaBrowserService implements LifecycleOwn
         mRadioStorage.getFavorites().observe(this,
                 favs -> mBrowseTree.setFavorites(new HashSet<>(favs)));
 
-        mProgramList = mRadioTuner.getDynamicProgramList(null);
+	Set<Integer> identifierTypes = new HashSet<Integer>();
+	//identifierTypes.addAll(Arrays.asList(new Integer[] {ProgramSelector.IDENTIFIER_TYPE_AMFM_FREQUENCY, ProgramSelector.IDENTIFIER_TYPE_DAB_SID_EXT}));
+	identifierTypes.addAll(Arrays.asList(new Integer[] {ProgramSelector.IDENTIFIER_TYPE_AMFM_FREQUENCY}));
+
+	Set<ProgramSelector.Identifier> identifiers = new HashSet<ProgramSelector.Identifier>();
+	ProgramSelector.Identifier identifier = new ProgramSelector.Identifier(ProgramSelector.IDENTIFIER_TYPE_RDS_PI, 1234);
+	identifiers.add(identifier);
+
+	ProgramList.Filter filter = new ProgramList.Filter(identifierTypes, identifiers, true, false);
+
+        mProgramList = mRadioTuner.getDynamicProgramList(filter);
 	Map<String, String> parameters = new HashMap<String, String>();
 	parameters.put("com.announcement.start", "true");
 	parameters.put("com.announcement.stop", "false");
